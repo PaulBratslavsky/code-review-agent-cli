@@ -3,6 +3,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query, type PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { showMessage } from "./utils/display.js";
+import { stripAnsiCodes } from "./utils/formatting.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -45,7 +46,8 @@ async function loadSkills(): Promise<string> {
   try {
     entries = await readdir(skillsDir);
   } catch (error) {
-    if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+    const errCode = (error as NodeJS.ErrnoException).code;
+    if (errCode === "ENOENT" || errCode === "ENOTDIR") {
       cachedSkills = "";
       return cachedSkills;
     }
@@ -210,7 +212,9 @@ function isEditBlock(block: unknown): block is Record<string, unknown> {
 function getEditFilePath(block: Record<string, unknown>): string | null {
   if (typeof block.input !== "object" || block.input === null) return null;
   const input = block.input as Record<string, unknown>;
-  return typeof input.file_path === "string" ? input.file_path : null;
+  const filePath = input.file_path;
+  if (typeof filePath === "string" && filePath.length > 0) return filePath;
+  return null;
 }
 
 function collectEdits(msg: Record<string, unknown>, editedFiles: Set<string>): number {
@@ -236,13 +240,13 @@ async function executeQuery(prompt: string, options: Record<string, unknown>): P
   const editedFiles = new Set<string>();
 
   // Validate prompt is not empty after sanitization
-  const sanitizedPrompt = prompt.replaceAll(/[\x00-\x08\x0B-\x1F\x7F]/g, "");
+  // Strip control characters except tabs (\x09), newlines (\x0A), and carriage returns (\x0D)
+  const sanitizedPrompt = prompt.replaceAll(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
   if (sanitizedPrompt.trim().length === 0) {
     throw new Error("Prompt is empty after sanitization");
   }
 
   try {
-    // Strip control characters except tabs (\x09) and newlines (\x0A)
     for await (const message of query({ prompt: sanitizedPrompt, options })) {
       if (!isValidMessage(message)) continue;
       if (typeof message.type !== "string") continue;
@@ -263,13 +267,13 @@ function getStatusFromOutput(text: string): "all_clear" | "critical_remaining" |
   const trimmed = text.trim();
   if (trimmed.length === 0) return "unknown";
   const lines = trimmed.split("\n");
-  const lastLine = lines.length > 0 ? lines[lines.length - 1].trim().replaceAll(/\x1b\[[0-9;]*m/g, "").toUpperCase() : "";
+  const lastLine = lines.length > 0 ? stripAnsiCodes(lines[lines.length - 1].trim()).toUpperCase() : "";
   if (lastLine === "ALL_CLEAR") return "all_clear";
 
   const match = /^CRITICAL_REMAINING:\s*(\d+)$/i.exec(lastLine);
   if (match && match[1]) {
     const count = Number.parseInt(match[1], 10);
-    if (!Number.isNaN(count)) {
+    if (!Number.isNaN(count) && count >= 0 && count < 1000000) {
       return count === 0 ? "all_clear" : "critical_remaining";
     }
   }
@@ -287,15 +291,16 @@ async function runRecursive(prompt: string, options: Record<string, unknown>, ma
 
   for (let pass = 2; pass <= maxPasses; pass++) {
     if (result.editCount === 0) {
-      console.log("\x1b[33m⚠ No edits were made — stopping early.\x1b[0m\n");
+      // No edits in the last pass — check if the agent confirmed all clear
+      const status = getStatusFromOutput(result.lastText);
+      if (status === "all_clear") {
+        console.log("\n\x1b[32m━━━ All critical issues resolved ━━━\x1b[0m\n");
+      } else {
+        console.log("\x1b[33m⚠ No edits were made — stopping early.\x1b[0m\n");
+      }
       return;
     }
-
-    const status = getStatusFromOutput(result.lastText);
-    if (status === "all_clear") {
-      console.log("\n\x1b[32m━━━ All critical issues resolved ━━━\x1b[0m\n");
-      return;
-    }
+    // Edits were made — always re-review to verify fixes didn't introduce new issues
 
     const fileList = result.editedFiles.length > 0
       ? `Re-review these modified files: ${result.editedFiles.join(", ")}.`

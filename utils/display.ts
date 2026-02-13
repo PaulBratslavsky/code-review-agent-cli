@@ -54,7 +54,8 @@ function showEditDiff(input: Record<string, unknown>): void {
   }
 
   if (truncated) {
-    console.log(`\x1b[2m  ... ${totalLines - MAX_DIFF_LINES} more lines\x1b[0m`);
+    const remainingLines = totalLines - maxOld - maxNew;
+    console.log(`\x1b[2m  ... ${remainingLines} more lines\x1b[0m`);
   }
   console.log(`\x1b[2m  └─\x1b[0m`);
 }
@@ -97,17 +98,10 @@ async function handleContentBlock(block: unknown): Promise<void> {
         console.error(error.stack);
       }
       // Fallback: strip ANSI/control chars and output as plain text
-      try {
-        const sanitized = textContent
-          .replaceAll(/\x1b\[[0-9;]*m/g, "")
-          .replaceAll(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, "");
-        process.stdout.write(sanitized + "\n");
-      } catch (fallbackError) {
-        console.error("\x1b[31m✖ Failed to output text\x1b[0m");
-        if (process.env.DEBUG) {
-          console.error("Fallback error:", fallbackError);
-        }
-      }
+      const sanitized = textContent
+        .replaceAll(/\x1b\[[0-9;]*m/g, "")
+        .replaceAll(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, "");
+      process.stdout.write(sanitized + "\n");
     }
   }
 }

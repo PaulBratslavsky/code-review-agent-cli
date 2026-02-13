@@ -21,6 +21,13 @@ function checkApiKey(): void {
     console.error("Get your API key at: https://platform.claude.com/");
     process.exit(1);
   }
+
+  // Basic format validation
+  const trimmed = apiKey.trim();
+  if (trimmed.length < 20 || !/^sk-ant-/.test(trimmed)) {
+    console.error("\x1b[33m⚠ Warning: ANTHROPIC_API_KEY may have an invalid format.\x1b[0m");
+    console.error("\x1b[33m  Expected format: sk-ant-...\x1b[0m\n");
+  }
 }
 
 const program = new Command();
@@ -78,7 +85,7 @@ program
             "Example: CONFIRM_BYPASS_PERMISSIONS=1 code-review-agent --fix -p bypassPermissions \"Review this\""
           );
         }
-        if (!process.stdin.isTTY || process.stdin.isTTY === false) {
+        if (!process.stdin.isTTY) {
           throw new Error("bypassPermissions mode requires an interactive terminal (no piped input).");
         }
         const cwd = opts.cwd ?? process.cwd();

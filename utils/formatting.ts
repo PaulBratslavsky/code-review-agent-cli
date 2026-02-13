@@ -1,10 +1,7 @@
 export function truncate(value: string, max: number): string {
   if (!Number.isInteger(max) || max < 3) {
-    throw new Error("max must be an integer of at least 3 to accommodate ellipsis");
+    throw new Error("max must be an integer >= 3 to accommodate ellipsis");
   }
-  if (value.length <= max) return value;
-  // Array.from splits by code points, not grapheme clusters.
-  // Compound emoji (e.g. 👨‍👩‍👧‍👦) may be split incorrectly.
   const chars = Array.from(value);
   if (chars.length <= max) return value;
   return chars.slice(0, max - 3).join("") + "...";
