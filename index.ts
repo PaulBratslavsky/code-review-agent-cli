@@ -24,7 +24,7 @@ function checkApiKey(): void {
 
   // Basic format validation
   const trimmed = apiKey.trim();
-  if (trimmed.length < 20 || !/^sk-ant-/.test(trimmed)) {
+  if (trimmed.length < 40 || !/^sk-ant-[a-zA-Z0-9_-]{40,}$/.test(trimmed)) {
     console.error("\x1b[33m⚠ Warning: ANTHROPIC_API_KEY may have an invalid format.\x1b[0m");
     console.error("\x1b[33m  Expected format: sk-ant-...\x1b[0m\n");
   }

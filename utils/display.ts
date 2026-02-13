@@ -131,7 +131,6 @@ function handleResult(message: ResultMessage): void {
   console.log(`   Turns: ${message.num_turns}`);
   console.log(`   Duration: ${(message.duration_ms / 1000).toFixed(1)}s`);
   console.log(`   Cost: $${message.total_cost_usd.toFixed(4)}`);
-
 }
 
 export async function showMessage(message: Record<string, unknown>): Promise<void> {

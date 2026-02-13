@@ -203,7 +203,7 @@ interface QueryResult {
   editedFiles: string[];
 }
 
-function isEditBlock(block: unknown): block is Record<string, unknown> {
+function isFileModificationBlock(block: unknown): block is Record<string, unknown> {
   if (typeof block !== "object" || block === null || !("name" in block)) return false;
   const name = (block as Record<string, unknown>).name;
   return name === "Edit" || name === "Write";
@@ -225,7 +225,7 @@ function collectEdits(msg: Record<string, unknown>, editedFiles: Set<string>): n
 
   let count = 0;
   for (const block of content) {
-    if (isEditBlock(block)) {
+    if (isFileModificationBlock(block)) {
       count++;
       const filePath = getEditFilePath(block);
       if (filePath) editedFiles.add(filePath);

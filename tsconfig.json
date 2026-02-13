@@ -10,7 +10,8 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true
   },
   "include": ["index.ts", "agent.ts", "utils/**/*.ts", "marked-terminal.d.ts"]
 }

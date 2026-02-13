@@ -5,9 +5,12 @@
   "bin": {
     "code-review-agent": "./dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "start": "FORCE_COLOR=1 tsx index.ts",
-    "build": "tsc",
+    "build": "npx tsc && cp -r prompts dist/prompts && cp -r skills dist/skills",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
@@ -18,6 +21,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
-    "tsx": "^4.21.0"
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   }
 }
