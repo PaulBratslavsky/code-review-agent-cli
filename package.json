@@ -1,6 +1,6 @@
 {
-  "name": "code-review-agent",
-  "version": "1.0.1",
+  "name": "code-review-agent-cli",
+  "version": "1.0.0",
   "type": "module",
   "bin": {
     "code-review-agent": "./dist/index.js"
