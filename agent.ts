@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
-import { resolve, dirname } from "node:path";
+import { readFile, readdir } from "node:fs/promises";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { query, type PermissionMode, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
+import { query, type PermissionMode } from "@anthropic-ai/claude-agent-sdk";
 import { showMessage } from "./utils/display.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -11,18 +11,58 @@ const VALID_PERMISSION_MODES = new Set<PermissionMode>(["default", "acceptEdits"
 const MAX_PROMPT_LENGTH = (() => {
   if (!process.env.MAX_PROMPT_LENGTH) return 50000;
   const parsed = Number.parseInt(process.env.MAX_PROMPT_LENGTH, 10);
-  return Number.isNaN(parsed) ? 50000 : Math.min(parsed, 100000);
+  if (Number.isNaN(parsed) || parsed < 1) return 50000;
+  return Math.min(parsed, 100000);
 })();
 
+let cachedSystemPrompt: string | null = null;
+
 async function loadSystemPrompt(): Promise<string> {
+  if (cachedSystemPrompt !== null) return cachedSystemPrompt;
   const promptPath = resolve(__dirname, "prompts/system.md");
   try {
-    return await readFile(promptPath, "utf-8");
+    cachedSystemPrompt = await readFile(promptPath, "utf-8");
+    return cachedSystemPrompt;
   } catch (error) {
-    throw new Error(
-      `Failed to load system prompt from ${promptPath}. Ensure prompts/system.md exists. ${error instanceof Error ? error.message : String(error)}`
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const wrapped = new Error(
+      `Failed to load system prompt from ${promptPath}. Ensure prompts/system.md exists.\nCause: ${errorMsg}`,
+      error instanceof Error ? { cause: error } : undefined
     );
+    if (error instanceof Error && error.stack) {
+      wrapped.stack = `${wrapped.stack}\n\nCaused by:\n${error.stack}`;
+    }
+    throw wrapped;
   }
+}
+
+let cachedSkills: string | null = null;
+
+async function loadSkills(): Promise<string> {
+  if (cachedSkills !== null) return cachedSkills;
+  const skillsDir = resolve(__dirname, "skills");
+  let entries: string[];
+  try {
+    entries = await readdir(skillsDir);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+      cachedSkills = "";
+      return cachedSkills;
+    }
+    throw new Error(`Failed to read skills directory: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const mdFiles = entries.filter(f => f.endsWith(".md")).sort((a, b) => a.localeCompare(b));
+  if (mdFiles.length === 0) {
+    cachedSkills = "";
+    return cachedSkills;
+  }
+
+  const contents = await Promise.all(
+    mdFiles.map(file => readFile(join(skillsDir, file), "utf-8"))
+  );
+  const parts = contents.map(c => c.trim());
+  cachedSkills = "\n\n" + parts.join("\n\n");
+  return cachedSkills;
 }
 
 export interface AgentOptions {
@@ -34,6 +74,7 @@ export interface AgentOptions {
   fixRecursive?: boolean;
   maxPasses?: number;
   cwd?: string;
+  bypassConfirmed?: boolean;
 }
 
 function validatePrompt(prompt: string): void {
@@ -96,13 +137,13 @@ const FIX_PROMPT_PREFIX =
   "For each bug or issue you find, immediately call the Edit tool to fix it in the source file. " +
   "Do NOT ask the user if they want fixes applied — apply them directly.\n\n";
 
-function buildPromptAppend(systemPromptText: string, opts: AgentOptions): string {
-  if (opts.fixRecursive) return systemPromptText + FIX_RECURSIVE_INSTRUCTIONS;
-  if (opts.fix) return systemPromptText + FIX_MODE_INSTRUCTIONS;
-  return systemPromptText;
+function getFixInstructions(opts: AgentOptions): string {
+  if (opts.fixRecursive) return FIX_RECURSIVE_INSTRUCTIONS;
+  if (opts.fix) return FIX_MODE_INSTRUCTIONS;
+  return "";
 }
 
-function resolveOptions(opts: AgentOptions, systemPromptText: string) {
+function resolveOptions(opts: AgentOptions, promptAppend: string) {
   const model = opts.model ?? "claude-sonnet-4-5-20250929";
   if (!VALID_MODELS.has(model)) {
     throw new Error(`Invalid model: ${model}`);
@@ -113,22 +154,25 @@ function resolveOptions(opts: AgentOptions, systemPromptText: string) {
     throw new Error(`Invalid permission mode: ${permissionMode}`);
   }
 
+  if (permissionMode === "bypassPermissions" && !opts.bypassConfirmed) {
+    throw new Error("bypassPermissions requires confirmation via the CLI");
+  }
+
   return {
     model,
-    allowedTools: opts.tools ?? ["Read", "Edit", "Glob", "Grep", "Write", "Bash", "Skill"],
+    allowedTools: opts.tools ?? ["Read", "Edit", "Glob", "Grep", "Write", "Bash"],
     permissionMode,
-    // Only loads project-level settings — run on trusted projects only
-    settingSources: ["project"] as SettingSource[],
     systemPrompt: {
       type: "preset" as const,
       preset: "claude_code" as const,
-      append: buildPromptAppend(systemPromptText, opts),
+      append: promptAppend,
     },
     ...(opts.maxTurns && { maxTurns: opts.maxTurns }),
     ...(opts.cwd && { cwd: opts.cwd }),
   };
 }
 
+// Returns the last text block from an assistant message, or null if none found.
 function extractLastText(msg: Record<string, unknown>): string | null {
   if (msg.type !== "assistant") return null;
   const assistant = msg as { message?: { content?: unknown[] } };
@@ -138,7 +182,10 @@ function extractLastText(msg: Record<string, unknown>): string | null {
   let text: string | null = null;
   for (const block of content) {
     if (typeof block === "object" && block !== null && "text" in block) {
-      text = String((block as Record<string, unknown>).text);
+      const textValue = (block as Record<string, unknown>).text;
+      if (typeof textValue === "string") {
+        text = textValue;
+      }
     }
   }
   return text;
@@ -151,9 +198,22 @@ function isValidMessage(message: unknown): message is Record<string, unknown> {
 interface QueryResult {
   lastText: string;
   editCount: number;
+  editedFiles: string[];
 }
 
-function countEdits(msg: Record<string, unknown>): number {
+function isEditBlock(block: unknown): block is Record<string, unknown> {
+  if (typeof block !== "object" || block === null || !("name" in block)) return false;
+  const name = (block as Record<string, unknown>).name;
+  return name === "Edit" || name === "Write";
+}
+
+function getEditFilePath(block: Record<string, unknown>): string | null {
+  if (typeof block.input !== "object" || block.input === null) return null;
+  const input = block.input as Record<string, unknown>;
+  return typeof input.file_path === "string" ? input.file_path : null;
+}
+
+function collectEdits(msg: Record<string, unknown>, editedFiles: Set<string>): number {
   if (msg.type !== "assistant") return 0;
   const assistant = msg as { message?: { content?: unknown[] } };
   const content = assistant.message?.content;
@@ -161,9 +221,10 @@ function countEdits(msg: Record<string, unknown>): number {
 
   let count = 0;
   for (const block of content) {
-    if (typeof block === "object" && block !== null && "name" in block) {
-      const name = (block as Record<string, unknown>).name;
-      if (name === "Edit" || name === "Write") count++;
+    if (isEditBlock(block)) {
+      count++;
+      const filePath = getEditFilePath(block);
+      if (filePath) editedFiles.add(filePath);
     }
   }
   return count;
@@ -172,31 +233,53 @@ function countEdits(msg: Record<string, unknown>): number {
 async function executeQuery(prompt: string, options: Record<string, unknown>): Promise<QueryResult> {
   let lastText = "";
   let editCount = 0;
+  const editedFiles = new Set<string>();
 
-  for await (const message of query({ prompt, options })) {
-    if (!isValidMessage(message)) continue;
-    if (typeof message.type !== "string") continue;
-
-    editCount += countEdits(message);
-    await showMessage(message);
-    lastText = extractLastText(message) ?? lastText;
+  // Validate prompt is not empty after sanitization
+  const sanitizedPrompt = prompt.replaceAll(/[\x00-\x08\x0B-\x1F\x7F]/g, "");
+  if (sanitizedPrompt.trim().length === 0) {
+    throw new Error("Prompt is empty after sanitization");
   }
 
-  return { lastText, editCount };
+  try {
+    // Strip control characters except tabs (\x09) and newlines (\x0A)
+    for await (const message of query({ prompt: sanitizedPrompt, options })) {
+      if (!isValidMessage(message)) continue;
+      if (typeof message.type !== "string") continue;
+
+      editCount += collectEdits(message, editedFiles);
+      await showMessage(message);
+      lastText = extractLastText(message) ?? lastText;
+    }
+  } catch (error) {
+    if (error instanceof Error) throw error;
+    throw new Error(`Query execution failed: ${String(error)}`);
+  }
+
+  return { lastText, editCount, editedFiles: Array.from(editedFiles) };
 }
 
 function getStatusFromOutput(text: string): "all_clear" | "critical_remaining" | "unknown" {
-  if (!text || text.trim().length === 0) return "unknown";
-  const lastLine = text.trim().split("\n").pop()?.trim() ?? "";
-  if (/^ALL_CLEAR$/.test(lastLine)) return "all_clear";
-  if (/^CRITICAL_REMAINING:\s*\d+$/.test(lastLine)) return "critical_remaining";
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return "unknown";
+  const lines = trimmed.split("\n");
+  const lastLine = lines.length > 0 ? lines[lines.length - 1].trim().replaceAll(/\x1b\[[0-9;]*m/g, "").toUpperCase() : "";
+  if (lastLine === "ALL_CLEAR") return "all_clear";
+
+  const match = /^CRITICAL_REMAINING:\s*(\d+)$/i.exec(lastLine);
+  if (match && match[1]) {
+    const count = Number.parseInt(match[1], 10);
+    if (!Number.isNaN(count)) {
+      return count === 0 ? "all_clear" : "critical_remaining";
+    }
+  }
   return "unknown";
 }
 
 async function runRecursive(prompt: string, options: Record<string, unknown>, maxPasses: number): Promise<void> {
-  const RE_REVIEW_PROMPT =
-    FIX_PROMPT_PREFIX +
-    "Re-review all source files that were just modified. Check if the fixes introduced new issues. Fix any remaining Critical or Warning issues.";
+  if (!Number.isInteger(maxPasses) || maxPasses < 1 || maxPasses > 100) {
+    throw new Error("maxPasses must be an integer between 1 and 100");
+  }
 
   console.log(`\n\x1b[35m━━━ Pass 1/${maxPasses} ━━━\x1b[0m\n`);
   let result = await executeQuery(FIX_PROMPT_PREFIX + prompt, options);
@@ -214,8 +297,14 @@ async function runRecursive(prompt: string, options: Record<string, unknown>, ma
       return;
     }
 
+    const fileList = result.editedFiles.length > 0
+      ? `Re-review these modified files: ${result.editedFiles.join(", ")}.`
+      : "Re-review all source files that were just modified.";
+    const reReviewPrompt = fileList +
+      " Check if the fixes introduced new issues. Fix any remaining Critical or Warning issues.";
+
     console.log(`\n\x1b[35m━━━ Pass ${pass}/${maxPasses} ━━━\x1b[0m\n`);
-    result = await executeQuery(RE_REVIEW_PROMPT, options);
+    result = await executeQuery(reReviewPrompt, options);
     console.log(`\n\x1b[36m━━━ Pass ${pass} complete: ${result.editCount} file edit(s) applied ━━━\x1b[0m`);
   }
 
@@ -227,21 +316,24 @@ async function runRecursive(prompt: string, options: Record<string, unknown>, ma
   }
 }
 
-function wrapQueryError(error: unknown): never {
+function wrapQueryError(error: unknown): Error {
   if (error instanceof Error) {
     const wrapped = new Error(`Agent query failed: ${error.message}`);
     if (error.stack) {
       wrapped.stack = `${wrapped.stack}\nCaused by: ${error.stack}`;
     }
-    throw wrapped;
+    return wrapped;
   }
-  throw new Error(`Agent query failed: ${String(error)}`);
+  return new Error(`Agent query failed: ${String(error)}`);
 }
 
 export async function runAgent(prompt: string, opts: AgentOptions = {}): Promise<void> {
   validatePrompt(prompt);
-  const systemPromptText = await loadSystemPrompt();
-  const options = resolveOptions(opts, systemPromptText);
+  await loadSystemPrompt(); // Validate that system prompt exists
+
+  const skills = await loadSkills();
+  const promptAppend = skills + getFixInstructions(opts);
+  const options = resolveOptions(opts, promptAppend);
 
   try {
     if (opts.fixRecursive) {
@@ -253,6 +345,6 @@ export async function runAgent(prompt: string, opts: AgentOptions = {}): Promise
       await executeQuery(prompt, options);
     }
   } catch (error) {
-    wrapQueryError(error);
+    throw wrapQueryError(error);
   }
 }

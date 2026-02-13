@@ -1,16 +1,18 @@
 #!/usr/bin/env npx tsx
+import { createInterface } from "node:readline";
 import { Command } from "commander";
 import { runAgent } from "./agent.js";
 
 const DEFAULT_PROMPT =
   "Explore all the files in the current directory. List them and provide a brief summary of what this project is about. Then review all source files for bugs, security issues, and code quality.";
 
-const VALID_TOOLS = new Set(["Read", "Edit", "Glob", "Grep", "Write", "Bash", "Skill"]);
+const VALID_TOOLS = new Set(["Read", "Edit", "Glob", "Grep", "Write", "Bash"]);
 const VALID_PERMISSION_MODES = new Set(["default", "acceptEdits", "bypassPermissions"]);
 
 function checkApiKey(): void {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.error("\x1b[31mError: ANTHROPIC_API_KEY is not set.\x1b[0m\n");
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || apiKey.trim().length === 0) {
+    console.error("\x1b[31mError: ANTHROPIC_API_KEY is not set or empty.\x1b[0m\n");
     console.error("Set it in your shell profile (persists across sessions):");
     console.error("  echo 'export ANTHROPIC_API_KEY=your-api-key' >> ~/.zshrc");
     console.error("  source ~/.zshrc\n");
@@ -32,7 +34,7 @@ program
   .option(
     "-t, --tools <tools>",
     "Comma-separated allowed tools",
-    "Read,Edit,Glob,Grep,Write,Bash,Skill"
+    "Read,Edit,Glob,Grep,Write,Bash"
   )
   .option(
     "-p, --permission-mode <mode>",
@@ -48,13 +50,13 @@ program
   })
   .option("--fix", "Apply recommended fixes to source files")
   .option("--fix-recursive", "Review, fix, and re-review until no critical issues remain")
-  .option("--max-passes <n>", "Max review passes for --fix-recursive", (val: string) => {
+  .option("--max-passes <n>", "Max review passes for --fix-recursive (default: 5)", (val: string) => {
     const parsed = Number.parseInt(val, 10);
     if (Number.isNaN(parsed) || parsed <= 0) {
       throw new Error("--max-passes must be a positive integer");
     }
     return parsed;
-  })
+  }, 5)
   .option("--cwd <dir>", "Working directory")
   .action(async (prompt: string | undefined, opts) => {
     checkApiKey();
@@ -70,7 +72,41 @@ program
       }
 
       if (opts.permissionMode === "bypassPermissions") {
-        console.warn("\x1b[33m⚠ WARNING: Running in bypassPermissions mode. Files may be modified without confirmation.\x1b[0m");
+        if (process.env.CONFIRM_BYPASS_PERMISSIONS !== "1") {
+          throw new Error(
+            "bypassPermissions mode requires CONFIRM_BYPASS_PERMISSIONS=1 environment variable. " +
+            "Example: CONFIRM_BYPASS_PERMISSIONS=1 code-review-agent --fix -p bypassPermissions \"Review this\""
+          );
+        }
+        if (!process.stdin.isTTY || process.stdin.isTTY === false) {
+          throw new Error("bypassPermissions mode requires an interactive terminal (no piped input).");
+        }
+        const cwd = opts.cwd ?? process.cwd();
+        console.error("\x1b[33m⚠ WARNING: Running in bypassPermissions mode.\x1b[0m");
+        console.error("\x1b[33m⚠ Files may be modified without confirmation.\x1b[0m");
+        console.error(`\x1b[33m⚠ Working directory: ${cwd}\x1b[0m`);
+
+        const rl = createInterface({ input: process.stdin, output: process.stderr });
+        let answer: string;
+        try {
+          answer = await new Promise<string>((resolve, reject) => {
+            const timeout = setTimeout(() => {
+              rl.close();
+              reject(new Error("Timeout waiting for confirmation (30s)."));
+            }, 30000);
+            rl.question("\x1b[33m⚠ Type 'yes' to confirm: \x1b[0m", (ans) => {
+              clearTimeout(timeout);
+              resolve(ans);
+            });
+          });
+        } finally {
+          rl.close();
+        }
+
+        if (answer.trim().toLowerCase() !== "yes") {
+          console.error("\x1b[31mAborted.\x1b[0m");
+          process.exit(1);
+        }
       }
 
       await runAgent(prompt ?? DEFAULT_PROMPT, {
@@ -82,8 +118,11 @@ program
         fixRecursive: Boolean(opts.fixRecursive),
         maxPasses: opts.maxPasses,
         cwd: opts.cwd,
+        bypassConfirmed: opts.permissionMode === "bypassPermissions",
       });
     } catch (error) {
+      const isValidation = error instanceof Error &&
+        (error.message.includes("Invalid") || error.message.includes("must be"));
       if (error instanceof Error) {
         console.error("\x1b[31mError:\x1b[0m", error.message);
         if (process.env.DEBUG) {
@@ -92,7 +131,7 @@ program
       } else {
         console.error("\x1b[31mError:\x1b[0m", String(error));
       }
-      process.exit(1);
+      process.exit(isValidation ? 2 : 1);
     }
   });
 

@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "bin": {
-    "code-review-agent": "./index.ts"
+    "code-review-agent": "./dist/index.js"
   },
   "scripts": {
-    "start": "FORCE_COLOR=1 tsx index.ts"
+    "start": "FORCE_COLOR=1 tsx index.ts",
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.41",

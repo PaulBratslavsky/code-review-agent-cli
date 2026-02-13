@@ -113,7 +113,7 @@ npx tsx index.ts --fix-recursive --max-passes 3 "Audit agent.ts"
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-m, --model <model>` | Claude model to use | `claude-sonnet-4-5-20250929` |
-| `-t, --tools <tools>` | Comma-separated list of allowed tools | `Read,Edit,Glob,Grep,Write,Bash,Skill` |
+| `-t, --tools <tools>` | Comma-separated list of allowed tools | `Read,Edit,Glob,Grep,Write,Bash` |
 | `-p, --permission-mode <mode>` | `default`, `acceptEdits`, or `bypassPermissions` | `acceptEdits` |
 | `--max-turns <n>` | Maximum number of agentic turns | unlimited |
 | `--fix` | Apply recommended fixes to source files | off |
@@ -150,14 +150,12 @@ my-first-agent/
 ├── index.ts              # CLI entry point — parses args, calls agent
 ├── agent.ts              # Core agent — identity, tools, prompt, runs query()
 ├── prompts/
-│   └── system.md         # Agent's system prompt / personality
+│   └── system.md         # System prompt — agent identity and behavior
+├── skills/
+│   └── code-review.md    # Code review methodology (loaded at startup)
 ├── utils/
 │   ├── display.ts        # Message rendering for the terminal
 │   └── formatting.ts     # String helpers (truncation, tool formatting)
-├── .claude/
-│   └── skills/
-│       └── code-review/
-│           └── SKILL.md  # Code review skill definition
 ├── marked-terminal.d.ts  # Type declaration for marked-terminal
 ├── package.json
 └── tsconfig.json
@@ -167,7 +165,7 @@ my-first-agent/
 
 **`index.ts`** — Thin CLI entry point. Uses Commander to parse arguments and options, then calls `runAgent()`.
 
-**`agent.ts`** — Core agent module. Loads the system prompt from `prompts/system.md`, configures tools and skill discovery via `settingSources: ["project"]`, and streams output through `showMessage()`. Supports three modes:
+**`agent.ts`** — Core agent module. Loads the system prompt from `prompts/system.md`, configures tools, and streams output through `showMessage()`. Supports three modes:
 
 - **Review only** (default) — runs a single review pass
 - **`--fix`** — appends fix-mode instructions to the system prompt so the agent edits files after reviewing
@@ -175,7 +173,7 @@ my-first-agent/
 
 **`prompts/system.md`** — Defines who the agent is and how it behaves. This is what makes it a code review agent rather than a generic CLI tool.
 
-**`.claude/skills/`** — Skills are loaded automatically by the SDK. Each skill is a `SKILL.md` file with a YAML front matter (name, description, trigger conditions) and markdown instructions the agent follows when the skill is activated.
+**`skills/`** — Skill files (`.md`) loaded at startup and appended to the system prompt. Each file adds a specific capability. Drop in a new `.md` file to extend the agent — no code changes needed.
 
 ### Message streaming
 
@@ -245,102 +243,31 @@ flowchart TD
     style M fill:#d93,color:#fff
 ```
 
-## Adding New Skills
+## Adding Skills
 
-Skills are the primary way to extend the agent. No code changes required — just add a `SKILL.md` file.
+Drop a `.md` file into the `skills/` directory. It will be loaded automatically at startup and appended to the system prompt.
 
-### Step 1 — Create the skill directory
-
-```bash
-mkdir -p .claude/skills/my-new-skill
-```
-
-### Step 2 — Write the SKILL.md
-
-Create `.claude/skills/my-new-skill/SKILL.md`:
-
-```markdown
----
-name: my-new-skill
-description: >
-  Brief description of what this skill does and when to trigger it.
-  Include trigger phrases like "do X", "check Y", or "analyze Z".
----
-
-# My New Skill
-
-Instructions the agent follows when this skill is activated.
-
-## Process
-
-1. Step one
-2. Step two
-3. Step three
-
-## Output Format
-
-Describe the expected output structure.
-
-## Guidelines
-
-- Specific rules for the agent to follow
-```
-
-### Step 3 — That's it
-
-The SDK discovers skills from `.claude/skills/` automatically via `settingSources: ["project"]`. Next time you run the agent with a prompt that matches the skill's description, it will use it.
-
-### Skill file format
-
-The `SKILL.md` file has two parts:
-
-1. **YAML front matter** — `name` and `description`. The description tells the agent when to activate the skill. Include trigger words and phrases.
-2. **Markdown body** — The instructions the agent follows. Be specific: define the process, output format, and guidelines.
-
-### Example: adding a dependency audit skill
+For example, to add a dependency audit skill:
 
 ```bash
-mkdir -p .claude/skills/dependency-audit
-```
-
-`.claude/skills/dependency-audit/SKILL.md`:
-
-```markdown
----
-name: dependency-audit
-description: >
-  Audit project dependencies for known vulnerabilities, outdated packages,
-  and license issues. Trigger when the user says "audit dependencies",
-  "check packages", "find vulnerable deps", or "are my dependencies safe".
----
-
+cat > skills/dependency-audit.md << 'EOF'
 # Dependency Audit
 
 When asked to audit dependencies, follow this process.
 
 ## Process
-
 1. Read package.json (or requirements.txt, go.mod, etc.)
 2. Run the appropriate audit command (npm audit, pip audit, etc.)
 3. Check for outdated packages
 4. Flag packages with restrictive or incompatible licenses
 
 ## Output Format
-
 For each issue found:
 - **Package**: name and version
 - **Severity**: Critical / High / Medium / Low
 - **Issue**: what's wrong
 - **Fix**: recommended action
-
-End with a summary table.
+EOF
 ```
 
-### Tips for writing good skills
-
-- **Be specific in the description** — include the exact phrases users will say
-- **Define a clear process** — numbered steps the agent follows in order
-- **Specify the output format** — structured output is more useful than free-form text
-- **Include guidelines** — rules like "read the file before commenting" prevent common mistakes
-- **Keep skills focused** — one skill per concern; don't combine unrelated tasks
-# code-review-agent-cli
+Skills are loaded alphabetically by filename.
