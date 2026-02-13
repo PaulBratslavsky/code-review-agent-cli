@@ -1,0 +1,21 @@
+{
+  "name": "code-review-agent",
+  "version": "1.0.0",
+  "type": "module",
+  "bin": {
+    "code-review-agent": "./index.ts"
+  },
+  "scripts": {
+    "start": "FORCE_COLOR=1 tsx index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.41",
+    "commander": "^13.1.0",
+    "marked": "^15.0.12",
+    "marked-terminal": "^7.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "tsx": "^4.21.0"
+  }
+}
