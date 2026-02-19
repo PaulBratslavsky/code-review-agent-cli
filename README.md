@@ -20,14 +20,14 @@ npm install
 ### As an npm package
 
 ```bash
-npm install -g code-review-agent
+npm install -g code-review-agent-cli-cli
 ```
 
 Then run from any project directory:
 
 ```bash
-code-review-agent "Review this codebase"
-code-review-agent --fix-recursive
+code-review-agent-cli "Review this codebase"
+code-review-agent-cli --fix-recursive
 ```
 
 ### Authentication
@@ -46,7 +46,7 @@ Then reload your shell (`source ~/.zshrc`) or open a new terminal.
 **Or pass it inline** for a single run:
 
 ```bash
-ANTHROPIC_API_KEY=your-api-key code-review-agent "Review this codebase"
+ANTHROPIC_API_KEY=your-api-key code-review-agent-cli "Review this codebase"
 ```
 
 **Or use a `.env` file** (when running from source only):

@@ -1,149 +1,24 @@
-import { readFile, readdir } from "node:fs/promises";
-import { resolve, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { query, type PermissionMode } from "@anthropic-ai/claude-agent-sdk";
-import { showMessage } from "./utils/display.js";
-import { stripAnsiCodes } from "./utils/formatting.js";
+import {
+  showMessage,
+  isValidMessage,
+  extractLastText,
+  collectEdits,
+  getStatusFromOutput,
+  loadSystemPrompt,
+  loadSkills,
+  validatePrompt,
+  getFixInstructions,
+  FIX_PROMPT_PREFIX,
+  type QueryResult,
+  type AgentOptions,
+} from "./utils/index.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+export type { AgentOptions } from "./utils/index.js";
 
 const VALID_MODELS = new Set(["claude-sonnet-4-5-20250929", "claude-opus-4-6", "claude-opus-4"]);
 const VALID_PERMISSION_MODES = new Set<PermissionMode>(["default", "acceptEdits", "bypassPermissions"]);
-const MAX_PROMPT_LENGTH = (() => {
-  if (!process.env.MAX_PROMPT_LENGTH) return 50000;
-  const parsed = Number.parseInt(process.env.MAX_PROMPT_LENGTH, 10);
-  if (Number.isNaN(parsed) || parsed < 1) return 50000;
-  return Math.min(parsed, 100000);
-})();
-
-let cachedSystemPrompt: string | null = null;
-
-async function loadSystemPrompt(): Promise<string> {
-  if (cachedSystemPrompt !== null) return cachedSystemPrompt;
-  const promptPath = resolve(__dirname, "prompts/system.md");
-  try {
-    cachedSystemPrompt = await readFile(promptPath, "utf-8");
-    return cachedSystemPrompt;
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    const wrapped = new Error(
-      `Failed to load system prompt from ${promptPath}. Ensure prompts/system.md exists.\nCause: ${errorMsg}`,
-      error instanceof Error ? { cause: error } : undefined
-    );
-    if (error instanceof Error && error.stack) {
-      wrapped.stack = `${wrapped.stack}\n\nCaused by:\n${error.stack}`;
-    }
-    throw wrapped;
-  }
-}
-
-let cachedSkills: string | null = null;
-
-async function loadSkills(): Promise<string> {
-  if (cachedSkills !== null) return cachedSkills;
-  const skillsDir = resolve(__dirname, "skills");
-  let entries: string[];
-  try {
-    entries = await readdir(skillsDir);
-  } catch (error) {
-    const errCode = (error as NodeJS.ErrnoException).code;
-    if (errCode === "ENOENT" || errCode === "ENOTDIR") {
-      cachedSkills = "";
-      return cachedSkills;
-    }
-    throw new Error(`Failed to read skills directory: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  const mdFiles = entries.filter(f => f.endsWith(".md")).sort((a, b) => a.localeCompare(b));
-  if (mdFiles.length === 0) {
-    cachedSkills = "";
-    return cachedSkills;
-  }
-
-  const contents = await Promise.all(
-    mdFiles.map(file => readFile(join(skillsDir, file), "utf-8"))
-  );
-  const parts = contents.map(c => c.trim());
-  cachedSkills = "\n\n" + parts.join("\n\n");
-  return cachedSkills;
-}
-
-export interface AgentOptions {
-  model?: string;
-  tools?: string[];
-  permissionMode?: string;
-  maxTurns?: number;
-  fix?: boolean;
-  fixRecursive?: boolean;
-  maxPasses?: number;
-  cwd?: string;
-  bypassConfirmed?: boolean;
-}
-
-function validatePrompt(prompt: string): void {
-  if (!prompt || prompt.trim().length === 0) {
-    throw new Error("Prompt cannot be empty");
-  }
-  if (prompt.length > MAX_PROMPT_LENGTH) {
-    throw new Error(`Prompt exceeds maximum length of ${MAX_PROMPT_LENGTH} characters`);
-  }
-}
-
-const FIX_MODE_INSTRUCTIONS = `
-
-## Fix Mode
-
-Fix mode is enabled. You MUST apply fixes, not just report them.
-
-### Process
-1. Review the code and identify Critical and Warning issues.
-2. For EACH issue found, immediately use the Edit tool to fix it in the source file.
-3. After all edits are applied, output a summary listing every file you changed and what you fixed.
-
-### Rules
-- Fix Critical and Warning issues. Skip Suggestions unless they are trivial.
-- Make the smallest possible change for each fix — do not refactor surrounding code.
-- You MUST call the Edit tool for each fix. Do not just describe the fix — apply it.
-`;
-
-const FIX_RECURSIVE_INSTRUCTIONS = `
-
-## Recursive Fix Mode
-
-Recursive fix mode is enabled. You MUST apply fixes, not just report them.
-
-### Process
-1. Review the code and identify Critical and Warning issues.
-2. For EACH issue found, immediately use the Edit tool to fix it in the source file.
-3. After all edits are applied, output a summary in this exact format:
-
-### Fixes Applied
-- **file.ts:LINE** — description of what was fixed
-
-If no fixes were needed, write: "No fixes needed."
-
-4. On your VERY LAST line of output (after everything else), write ONLY one of these two status markers on its own line:
-  - CRITICAL_REMAINING: N  (where N is the count of Critical issues you could NOT fix)
-  - ALL_CLEAR  (if zero Critical issues remain after your fixes)
-
-### Rules
-- You MUST call the Edit tool for each fix. Do not just describe the fix — apply it.
-- Fix Critical and Warning issues. Skip Suggestions.
-- Make the smallest possible change — do not refactor surrounding code.
-- The status marker must be the VERY LAST line, with nothing after it.
-`;
-
 const DEFAULT_MAX_PASSES = 5;
-
-const FIX_PROMPT_PREFIX =
-  "IMPORTANT: You are in fix mode. You MUST apply fixes using the Edit tool — do not just report issues. " +
-  "For each bug or issue you find, immediately call the Edit tool to fix it in the source file. " +
-  "Do NOT ask the user if they want fixes applied — apply them directly.\n\n";
-
-function getFixInstructions(opts: AgentOptions): string {
-  if (opts.fixRecursive) return FIX_RECURSIVE_INSTRUCTIONS;
-  if (opts.fix) return FIX_MODE_INSTRUCTIONS;
-  return "";
-}
 
 function resolveOptions(opts: AgentOptions, promptAppend: string) {
   const model = opts.model ?? "claude-sonnet-4-5-20250929";
@@ -174,72 +49,11 @@ function resolveOptions(opts: AgentOptions, promptAppend: string) {
   };
 }
 
-// Returns the last text block from an assistant message, or null if none found.
-function extractLastText(msg: Record<string, unknown>): string | null {
-  if (msg.type !== "assistant") return null;
-  const assistant = msg as { message?: { content?: unknown[] } };
-  const content = assistant.message?.content;
-  if (!Array.isArray(content)) return null;
-
-  let text: string | null = null;
-  for (const block of content) {
-    if (typeof block === "object" && block !== null && "text" in block) {
-      const textValue = (block as Record<string, unknown>).text;
-      if (typeof textValue === "string") {
-        text = textValue;
-      }
-    }
-  }
-  return text;
-}
-
-function isValidMessage(message: unknown): message is Record<string, unknown> {
-  return !!message && typeof message === "object" && !Array.isArray(message);
-}
-
-interface QueryResult {
-  lastText: string;
-  editCount: number;
-  editedFiles: string[];
-}
-
-function isFileModificationBlock(block: unknown): block is Record<string, unknown> {
-  if (typeof block !== "object" || block === null || !("name" in block)) return false;
-  const name = (block as Record<string, unknown>).name;
-  return name === "Edit" || name === "Write";
-}
-
-function getEditFilePath(block: Record<string, unknown>): string | null {
-  if (typeof block.input !== "object" || block.input === null) return null;
-  const input = block.input as Record<string, unknown>;
-  const filePath = input.file_path;
-  if (typeof filePath === "string" && filePath.length > 0) return filePath;
-  return null;
-}
-
-function collectEdits(msg: Record<string, unknown>, editedFiles: Set<string>): number {
-  if (msg.type !== "assistant") return 0;
-  const assistant = msg as { message?: { content?: unknown[] } };
-  const content = assistant.message?.content;
-  if (!Array.isArray(content)) return 0;
-
-  let count = 0;
-  for (const block of content) {
-    if (isFileModificationBlock(block)) {
-      count++;
-      const filePath = getEditFilePath(block);
-      if (filePath) editedFiles.add(filePath);
-    }
-  }
-  return count;
-}
-
 async function executeQuery(prompt: string, options: Record<string, unknown>): Promise<QueryResult> {
   let lastText = "";
   let editCount = 0;
   const editedFiles = new Set<string>();
 
-  // Validate prompt is not empty after sanitization
   // Strip control characters except tabs (\x09), newlines (\x0A), and carriage returns (\x0D)
   const sanitizedPrompt = prompt.replaceAll(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
   if (sanitizedPrompt.trim().length === 0) {
@@ -261,23 +75,6 @@ async function executeQuery(prompt: string, options: Record<string, unknown>): P
   }
 
   return { lastText, editCount, editedFiles: Array.from(editedFiles) };
-}
-
-function getStatusFromOutput(text: string): "all_clear" | "critical_remaining" | "unknown" {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) return "unknown";
-  const lines = trimmed.split("\n");
-  const lastLine = lines.length > 0 ? stripAnsiCodes(lines[lines.length - 1].trim()).toUpperCase() : "";
-  if (lastLine === "ALL_CLEAR") return "all_clear";
-
-  const match = /^CRITICAL_REMAINING:\s*(\d+)$/i.exec(lastLine);
-  if (match && match[1]) {
-    const count = Number.parseInt(match[1], 10);
-    if (!Number.isNaN(count) && count >= 0 && count < 1000000) {
-      return count === 0 ? "all_clear" : "critical_remaining";
-    }
-  }
-  return "unknown";
 }
 
 async function runRecursive(prompt: string, options: Record<string, unknown>, maxPasses: number): Promise<void> {
