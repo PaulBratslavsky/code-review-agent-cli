@@ -118,7 +118,29 @@ async function runRecursive(prompt: string, options: Record<string, unknown>, ma
   }
 }
 
+function isAuthError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message.toLowerCase();
+  return msg.includes("authentication") || msg.includes("401") ||
+    msg.includes("invalid api key") || msg.includes("invalid x-api-key") ||
+    msg.includes("expired") || msg.includes("unauthorized");
+}
+
 function wrapQueryError(error: unknown): Error {
+  if (isAuthError(error)) {
+    const msg = [
+      "\x1b[31mAuthentication failed: your ANTHROPIC_API_KEY is invalid or expired.\x1b[0m\n",
+      "To fix this:",
+      "  1. Get a valid API key at: https://platform.claude.com/",
+      "  2. Update your shell profile:",
+      "     export ANTHROPIC_API_KEY=your-new-key",
+      "  3. Reload your shell: source ~/.zshrc\n",
+    ].join("\n");
+    console.error(msg);
+    const wrapped = new Error("Authentication failed");
+    wrapped.stack = undefined;
+    return wrapped;
+  }
   if (error instanceof Error) {
     const wrapped = new Error(`Agent query failed: ${error.message}`);
     if (error.stack) {

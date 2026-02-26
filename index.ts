@@ -9,7 +9,7 @@ const DEFAULT_PROMPT =
 const program = new Command();
 
 program
-  .name("code-review-agent")
+  .name("code-review-agent-cli")
   .description("Code review and audit agent powered by Claude")
   .version("1.0.0")
   .argument("[prompt]", "The prompt to send to the agent")

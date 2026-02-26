@@ -11,7 +11,7 @@ export function checkApiKey(): void {
     console.error("  echo 'export ANTHROPIC_API_KEY=your-api-key' >> ~/.zshrc");
     console.error("  source ~/.zshrc\n");
     console.error("Or pass it inline for a single run:");
-    console.error("  ANTHROPIC_API_KEY=your-api-key code-review-agent \"Review this codebase\"\n");
+    console.error("  ANTHROPIC_API_KEY=your-api-key code-review-agent-cli \"Review this codebase\"\n");
     console.error("Get your API key at: https://platform.claude.com/");
     process.exit(1);
   }
@@ -57,7 +57,7 @@ export async function confirmBypass(cwd: string): Promise<void> {
   if (process.env.CONFIRM_BYPASS_PERMISSIONS !== "1") {
     throw new Error(
       "bypassPermissions mode requires CONFIRM_BYPASS_PERMISSIONS=1 environment variable. " +
-      "Example: CONFIRM_BYPASS_PERMISSIONS=1 code-review-agent --fix -p bypassPermissions \"Review this\""
+      "Example: CONFIRM_BYPASS_PERMISSIONS=1 code-review-agent-cli --fix -p bypassPermissions \"Review this\""
     );
   }
   if (!process.stdin.isTTY) {
