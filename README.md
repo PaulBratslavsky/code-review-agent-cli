@@ -116,6 +116,7 @@ npx tsx index.ts --fix-recursive --max-passes 3 "Audit agent.ts"
 | `-t, --tools <tools>` | Comma-separated list of allowed tools | `Read,Edit,Glob,Grep,Write,Bash` |
 | `-p, --permission-mode <mode>` | `default`, `acceptEdits`, or `bypassPermissions` | `acceptEdits` |
 | `--max-turns <n>` | Maximum number of agentic turns | unlimited |
+| `--details` | Include detailed explanations and best practice rationale for each finding | off |
 | `--fix` | Apply recommended fixes to source files | off |
 | `--fix-recursive` | Review, fix, re-review until no critical issues remain | off |
 | `--max-passes <n>` | Max review/fix passes for `--fix-recursive` | `5` |

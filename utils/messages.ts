@@ -60,19 +60,26 @@ export function collectEdits(msg: Record<string, unknown>, editedFiles: Set<stri
   return count;
 }
 
+const STATUS_ALL_CLEAR = "ALL_CLEAR";
+const STATUS_CRITICAL_PREFIX = "CRITICAL_REMAINING:";
+const MAX_CRITICAL_COUNT = 1000000;
+
 export function getStatusFromOutput(text: string): "all_clear" | "critical_remaining" | "unknown" {
   const trimmed = text.trim();
   if (trimmed.length === 0) return "unknown";
-  const lines = trimmed.split("\n");
-  const lastLine = lines.length > 0 ? stripAnsiCodes(lines[lines.length - 1].trim()).toUpperCase() : "";
-  if (lastLine === "ALL_CLEAR") return "all_clear";
 
-  const match = /^CRITICAL_REMAINING:\s*(\d+)$/i.exec(lastLine);
-  if (match && match[1]) {
-    const count = Number.parseInt(match[1], 10);
-    if (!Number.isNaN(count) && count >= 0 && count < 1000000) {
+  const lines = trimmed.split("\n");
+  const lastLine = stripAnsiCodes(lines[lines.length - 1].trim()).toUpperCase();
+
+  if (lastLine === STATUS_ALL_CLEAR) return "all_clear";
+
+  if (lastLine.startsWith(STATUS_CRITICAL_PREFIX)) {
+    const countStr = lastLine.slice(STATUS_CRITICAL_PREFIX.length).trim();
+    const count = Number.parseInt(countStr, 10);
+    if (!Number.isNaN(count) && count >= 0 && count < MAX_CRITICAL_COUNT) {
       return count === 0 ? "all_clear" : "critical_remaining";
     }
   }
+
   return "unknown";
 }

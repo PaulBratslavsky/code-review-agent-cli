@@ -87,8 +87,24 @@ async function handleContentBlock(block: unknown): Promise<void> {
 
   if (typeof b.text === "string") {
     const textContent = b.text;
+
+    // Skip binary data
+    const nonPrintable = textContent.split("").filter(c => {
+      const code = c.charCodeAt(0);
+      return code < 32 && code !== 9 && code !== 10 && code !== 13;
+    }).length;
+    if (textContent.length > 0 && nonPrintable / textContent.length > 0.3) {
+      console.error("\x1b[33m⚠ Content appears to be binary data, skipping render\x1b[0m");
+      return;
+    }
+
+    // Sanitize terminal escape sequences
+    const sanitizedText = textContent
+      .replaceAll(/\x1b\].*?\x07/g, "")       // Remove OSC sequences
+      .replaceAll(/\x1b\[.*?[^0-9;m]$/gm, ""); // Remove incomplete sequences
+
     try {
-      const rendered = await marked.parse(textContent);
+      const rendered = await marked.parse(sanitizedText);
       process.stdout.write(cleanMarkdownRemnants(rendered));
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
@@ -98,10 +114,10 @@ async function handleContentBlock(block: unknown): Promise<void> {
         console.error(error.stack);
       }
       // Fallback: strip ANSI/control chars and output as plain text
-      const sanitized = textContent
+      const fallback = sanitizedText
         .replaceAll(/\x1b\[[0-9;]*m/g, "")
         .replaceAll(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, "");
-      process.stdout.write(sanitized + "\n");
+      process.stdout.write(fallback + "\n");
     }
   }
 }

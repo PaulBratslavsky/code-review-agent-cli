@@ -40,10 +40,23 @@ program
     }
     return parsed;
   }, 5)
+  .option("--details", "Include detailed explanations and best practice rationale for each finding")
   .option("--cwd <dir>", "Working directory")
   .action(run);
 
-async function run(prompt: string | undefined, opts: Record<string, string>): Promise<void> {
+interface CliOptions {
+  model: string;
+  tools: string;
+  permissionMode: string;
+  maxTurns?: number;
+  fix?: boolean;
+  fixRecursive?: boolean;
+  maxPasses?: number;
+  details?: boolean;
+  cwd?: string;
+}
+
+async function run(prompt: string | undefined, opts: CliOptions): Promise<void> {
   checkApiKey();
   try {
     const tools = parseTools(opts.tools);
@@ -61,6 +74,7 @@ async function run(prompt: string | undefined, opts: Record<string, string>): Pr
       fix: Boolean(opts.fix || opts.fixRecursive),
       fixRecursive: Boolean(opts.fixRecursive),
       maxPasses: opts.maxPasses ? Number(opts.maxPasses) : undefined,
+      details: Boolean(opts.details),
       cwd: opts.cwd,
       bypassConfirmed: opts.permissionMode === "bypassPermissions",
     });

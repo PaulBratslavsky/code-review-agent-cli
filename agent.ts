@@ -56,7 +56,8 @@ async function executeQuery(prompt: string, options: Record<string, unknown>): P
 
   // Strip control characters except tabs (\x09), newlines (\x0A), and carriage returns (\x0D)
   const sanitizedPrompt = prompt.replaceAll(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
-  if (sanitizedPrompt.trim().length === 0) {
+  const trimmedPrompt = sanitizedPrompt.trim();
+  if (trimmedPrompt.length === 0) {
     throw new Error("Prompt is empty after sanitization");
   }
 
@@ -155,7 +156,7 @@ export async function runAgent(prompt: string, opts: AgentOptions = {}): Promise
   validatePrompt(prompt);
   await loadSystemPrompt(); // Validate that system prompt exists
 
-  const skills = await loadSkills();
+  const skills = await loadSkills(opts);
   const promptAppend = skills + getFixInstructions(opts);
   const options = resolveOptions(opts, promptAppend);
 

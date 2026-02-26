@@ -6,12 +6,17 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROMPTS_DIR = resolve(__dirname, "..", "prompts");
 const SKILLS_DIR = resolve(__dirname, "..", "skills");
 
-const MAX_PROMPT_LENGTH = (() => {
-  if (!process.env.MAX_PROMPT_LENGTH) return 50000;
+const DEFAULT_MAX_PROMPT = 50000;
+const ABSOLUTE_MAX_PROMPT = 100000;
+
+function parseMaxPromptLength(): number {
+  if (!process.env.MAX_PROMPT_LENGTH) return DEFAULT_MAX_PROMPT;
   const parsed = Number.parseInt(process.env.MAX_PROMPT_LENGTH, 10);
-  if (Number.isNaN(parsed) || parsed < 1) return 50000;
-  return Math.min(parsed, 100000);
-})();
+  if (Number.isNaN(parsed) || parsed < 1) return DEFAULT_MAX_PROMPT;
+  return Math.min(parsed, ABSOLUTE_MAX_PROMPT);
+}
+
+const MAX_PROMPT_LENGTH = parseMaxPromptLength();
 
 let cachedSystemPrompt: string | null = null;
 
@@ -34,33 +39,38 @@ export async function loadSystemPrompt(): Promise<string> {
   }
 }
 
-let cachedSkills: string | null = null;
+const CONDITIONAL_SKILLS: Record<string, string> = {
+  "detailed-review.md": "details",
+};
 
-export async function loadSkills(): Promise<string> {
-  if (cachedSkills !== null) return cachedSkills;
+export async function loadSkills(opts: AgentOptions = {}): Promise<string> {
   let entries: string[];
   try {
     entries = await readdir(SKILLS_DIR);
   } catch (error) {
     const errCode = (error as NodeJS.ErrnoException).code;
     if (errCode === "ENOENT" || errCode === "ENOTDIR") {
-      cachedSkills = "";
-      return cachedSkills;
+      return "";
     }
     throw new Error(`Failed to read skills directory: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const mdFiles = entries.filter(f => f.endsWith(".md")).sort((a, b) => a.localeCompare(b));
-  if (mdFiles.length === 0) {
-    cachedSkills = "";
-    return cachedSkills;
-  }
+
+  const mdFiles = entries
+    .filter(f => f.endsWith(".md"))
+    .filter(f => {
+      const flag = CONDITIONAL_SKILLS[f];
+      // If the skill is conditional, only include it when the flag is set
+      return !flag || Boolean((opts as Record<string, unknown>)[flag]);
+    })
+    .sort((a, b) => a.localeCompare(b));
+
+  if (mdFiles.length === 0) return "";
 
   const contents = await Promise.all(
     mdFiles.map(file => readFile(join(SKILLS_DIR, file), "utf-8"))
   );
   const parts = contents.map(c => c.trim());
-  cachedSkills = "\n\n" + parts.join("\n\n");
-  return cachedSkills;
+  return "\n\n" + parts.join("\n\n");
 }
 
 export function validatePrompt(prompt: string): void {
@@ -129,6 +139,7 @@ export interface AgentOptions {
   fix?: boolean;
   fixRecursive?: boolean;
   maxPasses?: number;
+  details?: boolean;
   cwd?: string;
   bypassConfirmed?: boolean;
 }
