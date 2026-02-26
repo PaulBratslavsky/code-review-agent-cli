@@ -68,7 +68,7 @@ async function handleContentBlock(block: unknown): Promise<void> {
     console.log("\n\x1b[2m💭 Thinking:\x1b[0m");
     let thinking = b.thinking;
     if (thinking.length > 1000) {
-      thinking = thinking.slice(0, 997) + "...";
+      thinking = thinking.slice(0, 997).replace(/\s\S*$/, "") + "...";
     }
     console.log(`\x1b[2m${thinking}\x1b[0m\n`);
     return;
@@ -100,8 +100,8 @@ async function handleContentBlock(block: unknown): Promise<void> {
 
     // Sanitize terminal escape sequences
     const sanitizedText = textContent
-      .replaceAll(/\x1b\].*?\x07/g, "")       // Remove OSC sequences
-      .replaceAll(/\x1b\[.*?[^0-9;m]$/gm, ""); // Remove incomplete sequences
+      .replaceAll(/\x1b\].*?\x07/g, "")        // Remove OSC sequences
+      .replaceAll(/\x1b\[(?:[0-9;]*)?[A-Za-z]/g, ""); // Remove ANSI escape sequences
 
     try {
       const rendered = await marked.parse(sanitizedText);

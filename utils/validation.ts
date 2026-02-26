@@ -18,7 +18,7 @@ export function checkApiKey(): void {
 
   // Basic format validation
   const trimmed = apiKey.trim();
-  if (trimmed.length < 40 || !/^sk-ant-[a-zA-Z0-9_-]{40,200}$/.test(trimmed)) {
+  if (!trimmed.startsWith("sk-ant-") || trimmed.length < 40) {
     console.error("\x1b[33m⚠ Warning: ANTHROPIC_API_KEY may have an invalid format.\x1b[0m");
     console.error("\x1b[33m  Expected format: sk-ant-...\x1b[0m\n");
   }
@@ -69,10 +69,9 @@ export async function confirmBypass(cwd: string): Promise<void> {
   console.error(`\x1b[33m⚠ Working directory: ${cwd}\x1b[0m`);
 
   const rl = createInterface({ input: process.stdin, output: process.stderr });
-  let answer: string;
   let timeoutId: NodeJS.Timeout | null = null;
   try {
-    answer = await new Promise<string>((resolve, reject) => {
+    const answer = await new Promise<string>((resolve, reject) => {
       timeoutId = setTimeout(() => {
         rl.close();
         reject(new Error("Timeout waiting for confirmation (30s)."));
@@ -83,16 +82,16 @@ export async function confirmBypass(cwd: string): Promise<void> {
         resolve(ans);
       });
     });
+
+    if (answer.trim().toLowerCase() !== "yes") {
+      console.error("\x1b[31mAborted.\x1b[0m");
+      process.exit(1);
+    }
   } catch (error) {
     if (timeoutId) clearTimeout(timeoutId);
     throw error;
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
     rl.close();
-  }
-
-  if (answer.trim().toLowerCase() !== "yes") {
-    console.error("\x1b[31mAborted.\x1b[0m");
-    process.exit(1);
   }
 }

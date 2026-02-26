@@ -16,7 +16,7 @@ import {
 
 export type { AgentOptions } from "./utils/index.js";
 
-const VALID_MODELS = new Set(["claude-sonnet-4-5-20250929", "claude-opus-4-6", "claude-opus-4"]);
+const VALID_MODELS = new Set(["claude-sonnet-4-5-20250929", "claude-opus-4-6", "claude-opus-4", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"]);
 const VALID_PERMISSION_MODES = new Set<PermissionMode>(["default", "acceptEdits", "bypassPermissions"]);
 const DEFAULT_MAX_PASSES = 5;
 
@@ -56,8 +56,7 @@ async function executeQuery(prompt: string, options: Record<string, unknown>): P
 
   // Strip control characters except tabs (\x09), newlines (\x0A), and carriage returns (\x0D)
   const sanitizedPrompt = prompt.replaceAll(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
-  const trimmedPrompt = sanitizedPrompt.trim();
-  if (trimmedPrompt.length === 0) {
+  if (sanitizedPrompt.trim().length === 0) {
     throw new Error("Prompt is empty after sanitization");
   }
 

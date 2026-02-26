@@ -12,7 +12,10 @@ const ABSOLUTE_MAX_PROMPT = 100000;
 function parseMaxPromptLength(): number {
   if (!process.env.MAX_PROMPT_LENGTH) return DEFAULT_MAX_PROMPT;
   const parsed = Number.parseInt(process.env.MAX_PROMPT_LENGTH, 10);
-  if (Number.isNaN(parsed) || parsed < 1) return DEFAULT_MAX_PROMPT;
+  if (Number.isNaN(parsed) || parsed < 1) {
+    console.warn(`\x1b[33m⚠ Invalid MAX_PROMPT_LENGTH, using default: ${DEFAULT_MAX_PROMPT}\x1b[0m`);
+    return DEFAULT_MAX_PROMPT;
+  }
   return Math.min(parsed, ABSOLUTE_MAX_PROMPT);
 }
 
@@ -60,7 +63,7 @@ export async function loadSkills(opts: AgentOptions = {}): Promise<string> {
     .filter(f => {
       const flag = CONDITIONAL_SKILLS[f];
       // If the skill is conditional, only include it when the flag is set
-      return !flag || Boolean((opts as Record<string, unknown>)[flag]);
+      return !flag || Boolean(opts[flag as keyof AgentOptions]);
     })
     .sort((a, b) => a.localeCompare(b));
 

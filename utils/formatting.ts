@@ -22,8 +22,8 @@ function sanitize(str: unknown): string {
 
 export function cleanMarkdownRemnants(text: string): string {
   return text
-    .replaceAll(/\*\*(.+?)\*\*/g, "\x1b[1m$1\x1b[22m")  // **bold**
-    .replaceAll(/\*(.+?)\*/g, "\x1b[3m$1\x1b[23m")       // *italic*
+    .replaceAll(/\*\*(.+?)\*\*/gs, "\x1b[1m$1\x1b[22m")  // **bold**
+    .replaceAll(/\*(.+?)\*/gs, "\x1b[3m$1\x1b[23m")       // *italic*
     .replaceAll(/`([^`]+)`/g, "\x1b[36m$1\x1b[39m");      // `code`
 }
 

@@ -62,7 +62,8 @@ export function collectEdits(msg: Record<string, unknown>, editedFiles: Set<stri
 
 const STATUS_ALL_CLEAR = "ALL_CLEAR";
 const STATUS_CRITICAL_PREFIX = "CRITICAL_REMAINING:";
-const MAX_CRITICAL_COUNT = 1000000;
+// Upper bound to reject absurd values from malformed output
+const MAX_CRITICAL_COUNT = 10000;
 
 export function getStatusFromOutput(text: string): "all_clear" | "critical_remaining" | "unknown" {
   const trimmed = text.trim();
@@ -75,8 +76,9 @@ export function getStatusFromOutput(text: string): "all_clear" | "critical_remai
 
   if (lastLine.startsWith(STATUS_CRITICAL_PREFIX)) {
     const countStr = lastLine.slice(STATUS_CRITICAL_PREFIX.length).trim();
+    if (!/^\d+$/.test(countStr)) return "unknown";
     const count = Number.parseInt(countStr, 10);
-    if (!Number.isNaN(count) && count >= 0 && count < MAX_CRITICAL_COUNT) {
+    if (count >= 0 && count < MAX_CRITICAL_COUNT) {
       return count === 0 ? "all_clear" : "critical_remaining";
     }
   }
