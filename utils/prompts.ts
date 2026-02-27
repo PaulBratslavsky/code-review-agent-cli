@@ -42,8 +42,16 @@ export async function loadSystemPrompt(): Promise<string> {
   }
 }
 
-const CONDITIONAL_SKILLS: Record<string, string> = {
-  "detailed-review.md": "details",
+interface SkillMeta {
+  flag: string;
+  description: string;
+}
+
+const CONDITIONAL_SKILLS: Record<string, SkillMeta> = {
+  "detailed-review.md": { flag: "details", description: "Detailed explanations and best practice rationale for each finding" },
+  "security-audit.md": { flag: "security", description: "Deep security audit aligned with OWASP Top 10 and CWE" },
+  "clean-code.md": { flag: "cleanCode", description: "Clean Code principles, code smells, and refactoring patterns" },
+  "testing-review.md": { flag: "testReview", description: "Test quality, coverage gaps, and testing best practices" },
 };
 
 export async function loadSkills(opts: AgentOptions = {}): Promise<string> {
@@ -61,9 +69,9 @@ export async function loadSkills(opts: AgentOptions = {}): Promise<string> {
   const mdFiles = entries
     .filter(f => f.endsWith(".md"))
     .filter(f => {
-      const flag = CONDITIONAL_SKILLS[f];
+      const meta = CONDITIONAL_SKILLS[f];
       // If the skill is conditional, only include it when the flag is set
-      return !flag || Boolean(opts[flag as keyof AgentOptions]);
+      return !meta || Boolean(opts[meta.flag as keyof AgentOptions]);
     })
     .sort((a, b) => a.localeCompare(b));
 
@@ -143,6 +151,9 @@ export interface AgentOptions {
   fixRecursive?: boolean;
   maxPasses?: number;
   details?: boolean;
+  security?: boolean;
+  cleanCode?: boolean;
+  testReview?: boolean;
   cwd?: string;
   bypassConfirmed?: boolean;
 }
@@ -151,4 +162,28 @@ export function getFixInstructions(opts: AgentOptions): string {
   if (opts.fixRecursive) return FIX_RECURSIVE_INSTRUCTIONS;
   if (opts.fix) return FIX_MODE_INSTRUCTIONS;
   return "";
+}
+
+export async function listSkills(): Promise<string> {
+  let entries: string[];
+  try {
+    entries = await readdir(SKILLS_DIR);
+  } catch {
+    return "No skills directory found.";
+  }
+  const mdFiles = entries.filter(f => f.endsWith(".md")).sort();
+  if (mdFiles.length === 0) return "No skills found.";
+
+  const lines: string[] = ["\x1b[1mAvailable skills:\x1b[0m\n"];
+  for (const file of mdFiles) {
+    const meta = CONDITIONAL_SKILLS[file];
+    if (meta) {
+      lines.push(`  \x1b[36m--${meta.flag.replace(/([A-Z])/g, "-$1").toLowerCase()}\x1b[0m  ${meta.description}`);
+      lines.push(`    \x1b[2m(${file})\x1b[0m`);
+    } else {
+      lines.push(`  \x1b[32m${file}\x1b[0m  (always active)`);
+    }
+  }
+  lines.push("");
+  return lines.join("\n");
 }

@@ -10,6 +10,7 @@ export {
 export {
   loadSystemPrompt,
   loadSkills,
+  listSkills,
   validatePrompt,
   getFixInstructions,
   FIX_PROMPT_PREFIX,

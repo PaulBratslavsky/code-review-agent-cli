@@ -1,6 +1,7 @@
 #!/usr/bin/env npx tsx
 import { Command } from "commander";
 import { runAgent } from "./agent.js";
+import { listSkills } from "./utils/prompts.js";
 import { checkApiKey, parseTools, validatePermissionMode, handleError, confirmBypass } from "./utils/validation.js";
 
 const DEFAULT_PROMPT =
@@ -11,7 +12,7 @@ const program = new Command();
 program
   .name("code-review-agent-cli")
   .description("Code review and audit agent powered by Claude")
-  .version("1.0.0")
+  .version("1.0.3")
   .argument("[prompt]", "The prompt to send to the agent")
   .option("-m, --model <model>", "Model to use", "claude-sonnet-4-5-20250929")
   .option(
@@ -41,6 +42,10 @@ program
     return parsed;
   }, 5)
   .option("--details", "Include detailed explanations and best practice rationale for each finding")
+  .option("--security", "Deep security audit aligned with OWASP Top 10")
+  .option("--clean-code", "Review for Clean Code principles, code smells, and refactoring opportunities")
+  .option("--test-review", "Assess test quality, coverage gaps, and testing best practices")
+  .option("--list-skills", "List all available review skills and exit")
   .option("--cwd <dir>", "Working directory")
   .action(run);
 
@@ -53,10 +58,20 @@ interface CliOptions {
   fixRecursive?: boolean;
   maxPasses?: number;
   details?: boolean;
+  security?: boolean;
+  cleanCode?: boolean;
+  testReview?: boolean;
+  listSkills?: boolean;
   cwd?: string;
 }
 
 async function run(prompt: string | undefined, opts: CliOptions): Promise<void> {
+  if (opts.listSkills) {
+    const output = await listSkills();
+    console.log(output);
+    return;
+  }
+
   checkApiKey();
   try {
     const tools = parseTools(opts.tools);
@@ -75,6 +90,9 @@ async function run(prompt: string | undefined, opts: CliOptions): Promise<void> 
       fixRecursive: Boolean(opts.fixRecursive),
       maxPasses: opts.maxPasses,
       details: Boolean(opts.details),
+      security: Boolean(opts.security),
+      cleanCode: Boolean(opts.cleanCode),
+      testReview: Boolean(opts.testReview),
       cwd: opts.cwd,
       bypassConfirmed: opts.permissionMode === "bypassPermissions",
     });
