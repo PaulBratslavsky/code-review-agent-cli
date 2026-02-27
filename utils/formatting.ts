@@ -14,7 +14,7 @@ export function stripAnsiCodes(text: string): string {
 // Sanitize for single-line display: removes control chars, ANSI codes, and converts whitespace to spaces
 function sanitize(str: unknown): string {
   return stripAnsiCodes(String(str))
-    .replaceAll(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, "")
+    .replaceAll(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F-\x9F]/g, "")
     .replaceAll(/[\r\n\t]/g, " ")
     .trim();
 }
