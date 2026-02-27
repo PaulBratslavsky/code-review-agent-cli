@@ -12,7 +12,7 @@ const program = new Command();
 program
   .name("code-review-agent-cli")
   .description("Code review and audit agent powered by Claude")
-  .version("1.0.3")
+  .version("1.0.5")
   .argument("[prompt]", "The prompt to send to the agent")
   .option("-m, --model <model>", "Model to use", "claude-sonnet-4-5-20250929")
   .option(

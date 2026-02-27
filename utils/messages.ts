@@ -70,7 +70,8 @@ export function getStatusFromOutput(text: string): "all_clear" | "critical_remai
   if (trimmed.length === 0) return "unknown";
 
   const lines = trimmed.split("\n");
-  const lastLine = stripAnsiCodes(lines[lines.length - 1].trim()).toUpperCase();
+  const lastNonEmptyLine = lines.filter(l => l.trim().length > 0).pop() ?? "";
+  const lastLine = stripAnsiCodes(lastNonEmptyLine.trim()).toUpperCase();
 
   if (lastLine === STATUS_ALL_CLEAR) return "all_clear";
 

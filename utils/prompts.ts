@@ -178,7 +178,8 @@ export async function listSkills(): Promise<string> {
   for (const file of mdFiles) {
     const meta = CONDITIONAL_SKILLS[file];
     if (meta) {
-      lines.push(`  \x1b[36m--${meta.flag.replace(/([A-Z])/g, "-$1").toLowerCase()}\x1b[0m  ${meta.description}`);
+      const kebab = meta.flag.replace(/([A-Z])/g, "-$1").toLowerCase().replace(/^-/, "");
+      lines.push(`  \x1b[36m--${kebab}\x1b[0m  ${meta.description}`);
       lines.push(`    \x1b[2m(${file})\x1b[0m`);
     } else {
       lines.push(`  \x1b[32m${file}\x1b[0m  (always active)`);

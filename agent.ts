@@ -31,8 +31,10 @@ function resolveOptions(opts: AgentOptions, promptAppend: string) {
     throw new Error(`Invalid permission mode: ${permissionMode}`);
   }
 
-  if (permissionMode === "bypassPermissions" && !opts.bypassConfirmed) {
-    throw new Error("bypassPermissions requires confirmation via the CLI");
+  if (permissionMode === "bypassPermissions") {
+    if (!opts.bypassConfirmed || process.env.CONFIRM_BYPASS_PERMISSIONS !== "1") {
+      throw new Error("bypassPermissions requires confirmation via the CLI");
+    }
   }
 
   return {
@@ -54,15 +56,18 @@ async function executeQuery(prompt: string, options: Record<string, unknown>): P
   let editCount = 0;
   const editedFiles = new Set<string>();
 
-  // Strip control characters except tabs (\x09), newlines (\x0A), and carriage returns (\x0D)
-  const sanitizedPrompt = prompt.replaceAll(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, "");
+  // Strip control characters, keeping only tabs (\x09), newlines (\x0A), and carriage returns (\x0D)
+  const sanitizedPrompt = prompt.replaceAll(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, "");
   if (sanitizedPrompt.trim().length === 0) {
     throw new Error("Prompt is empty after sanitization");
   }
 
   try {
     for await (const message of query({ prompt: sanitizedPrompt, options })) {
-      if (!isValidMessage(message)) continue;
+      if (!isValidMessage(message)) {
+        if (process.env.DEBUG) console.warn("\x1b[33m⚠ Received invalid message, skipping\x1b[0m");
+        continue;
+      }
       if (typeof message.type !== "string") continue;
 
       editCount += collectEdits(message, editedFiles);
@@ -99,11 +104,10 @@ async function runRecursive(prompt: string, options: Record<string, unknown>, ma
     }
     // Edits were made — always re-review to verify fixes didn't introduce new issues
 
-    const fileList = result.editedFiles.length > 0
+    let reReviewPrompt = result.editedFiles.length > 0
       ? `Re-review these modified files: ${result.editedFiles.join(", ")}.`
       : "Re-review all source files that were just modified.";
-    const reReviewPrompt = fileList +
-      " Check if the fixes introduced new issues. Fix any remaining Critical or Warning issues.";
+    reReviewPrompt += " Check if the fixes introduced new issues. Fix any remaining Critical or Warning issues.";
 
     console.log(`\n\x1b[35m━━━ Pass ${pass}/${maxPasses} ━━━\x1b[0m\n`);
     result = await executeQuery(reReviewPrompt, options);

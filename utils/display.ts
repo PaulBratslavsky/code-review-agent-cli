@@ -88,12 +88,14 @@ async function handleContentBlock(block: unknown): Promise<void> {
   if (typeof b.text === "string") {
     const textContent = b.text;
 
-    // Skip binary data
-    const nonPrintable = textContent.split("").filter(c => {
-      const code = c.charCodeAt(0);
-      return code < 32 && code !== 9 && code !== 10 && code !== 13;
-    }).length;
-    if (textContent.length > 0 && nonPrintable / textContent.length > 0.3) {
+    // Skip binary data (sample first 1000 chars for performance)
+    let nonPrintable = 0;
+    const sampleLen = Math.min(textContent.length, 1000);
+    for (let i = 0; i < sampleLen; i++) {
+      const code = textContent.charCodeAt(i);
+      if (code < 32 && code !== 9 && code !== 10 && code !== 13) nonPrintable++;
+    }
+    if (sampleLen > 0 && nonPrintable / sampleLen > 0.3) {
       console.error("\x1b[33m⚠ Content appears to be binary data, skipping render\x1b[0m");
       return;
     }
@@ -113,10 +115,8 @@ async function handleContentBlock(block: unknown): Promise<void> {
       if (process.env.DEBUG && error instanceof Error) {
         console.error(error.stack);
       }
-      // Fallback: strip ANSI/control chars and output as plain text
-      const fallback = sanitizedText
-        .replaceAll(/\x1b\[[0-9;]*m/g, "")
-        .replaceAll(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, "");
+      // Fallback: strip remaining control chars and output as plain text
+      const fallback = sanitizedText.replaceAll(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, "");
       process.stdout.write(fallback + "\n");
     }
   }
